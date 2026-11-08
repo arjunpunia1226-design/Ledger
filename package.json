@@ -1,0 +1,16 @@
+{
+  "name": "ledger-arb",
+  "version": "0.1.0",
+  "description": "Multi-exchange crypto arbitrage bot with AI opportunity scoring, live market data and a paper-trading engine.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

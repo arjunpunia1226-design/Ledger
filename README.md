@@ -1,0 +1,66 @@
+# Ledger: cross-exchange crypto arbitrage bot
+
+A paper-trading arbitrage bot that streams **real order books from 9 exchanges**, scores every
+opportunity with an online-learning model, and simulates execution against the live market.
+It uses no real money yet. The executor is swappable, so live trading can be added later.
+
+```bash
+npm start            # or: node server/index.js
+# open http://localhost:8787
+```
+
+Requires Node 22+ (it uses Node's built-in WebSocket). It has **zero npm dependencies** and needs no API keys.
+
+## What it does
+
+| Piece | Details |
+|---|---|
+| **Live data** | Public WebSocket feeds from Binance, Coinbase, Kraken, OKX, Bybit, Bitstamp, Bitfinex, Gate.io, KuCoin for BTC, ETH, SOL, XRP, DOGE, ADA, LINK, LTC, AVAX. Auto-reconnect, watchdog, per-feed health. |
+| **Quote normalization** | USDT venues are converted to USD using a live USDT/USD reference (median of Coinbase/Kraken/Bitstamp). USD venues with their own USDT market get their own factor too, which catches Bitfinex's USD premium. Without this, the USDT basis looks like a free 10+ bps "arbitrage" that doesn't exist. |
+| **Scanner** | Event-driven: each book update re-checks every route for that coin (9 venues → 72 routes per coin, 648 total). |
+| **AI scorer** | Online logistic regression. Every crossing is shadow-labeled after the simulated latency: did both legs still fill on the *real* books? It learns from staleness, depth, volatility, route history, persistence and cross-quote features. It gates execution with a confidence threshold. Skill is reported against a base-rate baseline, so you can see whether it's actually adding value. |
+| **Paper execution** | Two IOC limit orders are placed in parallel after a simulated latency and filled against the live book at that moment. Taker fees apply. Fills consume book liquidity, and in-flight orders claim liquidity so routes can't double-book it. |
+| **Smart hedging** | When one leg misses (the quote moved or the liquidity was taken), the leftover position is flattened at market on the venue with the best price right now. |
+| **Inventory model** | Capital is pre-funded across venues (cash plus coins). An auto-rebalancer moves inventory with real withdrawal fees and transfer delay, and skips transfers that cost too much. |
+| **Inventory hedge** | On by default. The coins parked on exchanges would otherwise make equity swing with the market even when nothing trades. A simulated short perpetual-futures position, sized to total coin inventory and re-sized every second, cancels that out. Its fees (2 bps on size changes) count against Trading P&L. Funding payments are not modeled. |
+| **Risk** | Min net edge, max trade size, per-route cooldown, trades-per-minute cap, stale-quote filter, daily-loss kill switch, and an auto-halt if feeds drop. |
+| **Dashboard** | Start/stop, P&L/equity/drift chart, fee-hurdle histogram, opportunity scanner with block reasons, per-coin pulse sparklines, spread heatmap, price ladder, AI calibration and weights, trade blotter with fill details, balances, transfers in transit, feed health, activity log, CSV export, toasts and sound, light/dark theme. |
+| **Persistence** | State is saved to `data/state.json` every 10s and on shutdown. |
+
+## What the real data says
+
+At **retail taker fees** the cheapest round trip is ~20 bps, while observed cross-exchange spreads on
+these coins are almost always 0–5 bps. So the bot (correctly) rarely trades. The *Fee hurdle* panel
+shows this live. To watch the engine trade, open **Settings → Fees → VIP** or **Custom** and lower them.
+Even at zero fees, expect legged trades: the widest spreads are the ones most likely to vanish
+within ~200ms (adverse selection). That is what the AI model learns to score.
+
+## Layout
+
+```
+server/
+  index.js            HTTP server, REST control API, SSE live stream
+  config.js           coins, exchanges, fee schedules, withdrawal fees, default settings
+  market.js           book store, quote normalization, volatility
+  feeds/base.js       WebSocket connect / keep-alive / reconnect
+  feeds/index.js      per-exchange adapters
+  bot.js              scanner, AI gating, risk, execution, hedging, stats
+  ai.js               online logistic-regression scorer
+  executors/paper.js  paper executor (fills, fees, balances, rebalancing)
+  executors/live.js   stub + interface for real-money execution (next step)
+  store.js            JSON persistence
+public/               dashboard (vanilla JS, no build step)
+```
+
+## API
+
+`GET /api/state` · `GET /api/stream` (SSE) · `POST /api/bot/start` · `POST /api/bot/stop` ·
+`POST /api/settings` · `POST /api/account/reset` · `POST /api/ai/reset` · `GET /api/trades.csv`
+
+The server binds to `127.0.0.1` only.
+
+## Going live (later)
+
+Implement `server/executors/live.js` against exchange order APIs (or a wallet/DEX connector) and swap it
+in for `PaperExecutor` in `bot.js`. Use trade-only API keys (never withdrawal), withdrawal allow-lists,
+tiny size limits at first, and reconcile balances from the exchange after every fill.

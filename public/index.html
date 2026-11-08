@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ledger Arbitrage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233987e5'/%3E%3Cpath d='M8 20l6-6 4 4 6-8' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M8 20l6-6 4 4 6-8" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <div class="brand-name">Ledger</div>
+        <div class="brand-sub">Cross-exchange arbitrage</div>
+      </div>
+      <span class="mode-badge" id="modeBadge">PAPER</span>
+    </div>
+    <div class="top-metrics" id="topMetrics"></div>
+    <div class="top-actions">
+      <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+      <button class="btn btn-primary btn-run" id="runBtn" disabled>Start bot</button>
+      <button class="btn btn-ghost" id="resetBtn" title="Reset the paper account to fresh starting capital">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>Reset
+      </button>
+      <button class="btn btn-ghost icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1L15 3.5h-4L10.7 6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4L4.6 11a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>
+      </button>
+      <button class="btn btn-ghost icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="banner" id="haltBanner" hidden></div>
+
+  <main class="grid">
+    <section class="kpis" id="kpis"></section>
+
+    <section class="card span-8">
+      <div class="card-head">
+        <div>
+          <h2 id="chartTitle">Trading P&amp;L</h2>
+          <p class="sub" id="chartSub">Realized profit from arbitrage, net of fees and rebalancing costs</p>
+        </div>
+        <div class="seg" id="chartMode">
+          <button data-v="realized" class="on">Trading P&amp;L</button>
+          <button data-v="equity">Equity</button>
+          <button data-v="drift">Market movement</button>
+        </div>
+      </div>
+      <div class="chart" id="pnlChart"></div>
+    </section>
+
+    <section class="card span-4">
+      <div class="card-head">
+        <div><h2>Fee hurdle</h2><p class="sub">Peak gross spread of each crossing seen, vs. what fees cost</p></div>
+      </div>
+      <div id="edgeChart" class="chart chart-sm"></div>
+      <p class="note" id="edgeNote"></p>
+    </section>
+
+    <section class="card span-12">
+      <div class="card-head">
+        <div><h2>Opportunity scanner</h2><p class="sub">Best routes right now across every exchange pair, ranked by net edge after taker fees</p></div>
+        <div class="legend-inline"><span class="chip chip-good">Ready</span><span class="chip">Blocked: reason</span></div>
+      </div>
+      <div class="table-wrap"><table class="tbl" id="scanner"></table></div>
+    </section>
+
+    <section class="card span-12">
+      <div class="card-head">
+        <div><h2>Market pulse</h2><p class="sub">Best net edge per coin, last 5 minutes (bps). Above zero means a profitable route exists.</p></div>
+      </div>
+      <div class="pulse" id="pulse"></div>
+    </section>
+
+    <section class="card span-7">
+      <div class="card-head">
+        <div><h2>Spread matrix · <span id="matrixCoin">BTC</span></h2><p class="sub">Buy on row, sell on column. Prices normalized to USD.</p></div>
+        <div class="seg" id="heatMode"><button data-v="net" class="on">Net</button><button data-v="gross">Gross</button></div>
+      </div>
+      <div class="coin-tabs" id="coinTabs"></div>
+      <div class="heat-wrap" id="heatmap"></div>
+      <div class="heat-legend" id="heatLegend"></div>
+    </section>
+
+    <section class="card span-5">
+      <div class="card-head">
+        <div><h2>Price ladder · <span id="ladderCoin">BTC</span></h2><p class="sub">Top of book on each venue, in USD. Best bid and best ask marked.</p></div>
+      </div>
+      <div class="table-wrap"><table class="tbl tbl-compact" id="ladder"></table></div>
+    </section>
+
+    <section class="card span-5">
+      <div class="card-head">
+        <div><h2>AI opportunity scorer</h2><p class="sub" id="aiSub">Online model that predicts whether a spread is still there after latency</p></div>
+        <span class="chip" id="aiState">learning</span>
+      </div>
+      <div class="ai-stats" id="aiStats"></div>
+      <div class="ai-split">
+        <div><div class="mini-title">Calibration</div><div id="calibChart" class="chart chart-xs"></div></div>
+        <div><div class="mini-title">Feature weights</div><div id="weights"></div></div>
+      </div>
+    </section>
+
+    <section class="card span-7">
+      <div class="card-head">
+        <div><h2>Trade blotter</h2><p class="sub">Every simulated order pair, filled against live books after latency</p></div>
+        <div class="row-gap">
+          <div class="seg" id="tradeFilter"><button data-v="all" class="on">All</button><button data-v="filled">Filled</button><button data-v="problem">Legged / missed</button></div>
+          <a class="btn btn-ghost btn-sm" href="/api/trades.csv" download>Export CSV</a>
+        </div>
+      </div>
+      <div class="table-wrap tall"><table class="tbl tbl-compact" id="trades"></table></div>
+    </section>
+
+    <section class="card span-7">
+      <div class="card-head">
+        <div><h2>Paper balances</h2><p class="sub">Pre-funded inventory on every venue. Arbitrage buys on one and sells on another at once, so no transfer is needed per trade.</p></div>
+      </div>
+      <div class="table-wrap"><table class="tbl" id="balances"></table></div>
+      <div id="transfers"></div>
+    </section>
+
+    <section class="card span-5">
+      <div class="card-head">
+        <div><h2>Exchange health</h2><p class="sub">Live WebSocket feeds, no API keys</p></div>
+      </div>
+      <div class="table-wrap"><table class="tbl tbl-compact" id="feeds"></table></div>
+    </section>
+
+    <section class="card span-5">
+      <div class="card-head"><div><h2>Top routes by profit</h2><p class="sub">Where the paper P&amp;L came from</p></div></div>
+      <div id="topRoutes"></div>
+    </section>
+
+    <section class="card span-7">
+      <div class="card-head"><div><h2>Activity log</h2><p class="sub">Starts, stops, rebalances and risk events</p></div></div>
+      <div class="log" id="log"></div>
+    </section>
+
+    <section class="card span-12 live-card">
+      <div class="live-ico">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 7H5a2 2 0 0 1 0-4h14v2H5a0 0 0 0 0 0 0h16v14H5a4 4 0 0 1-4-4V5h2v10a2 2 0 0 0 2 2h14v-3h-4a2 2 0 0 1 0-4h4V7zm-2 5h-2v1h2z"/></svg>
+      </div>
+      <div>
+        <h2>Live trading</h2>
+        <p class="sub">Coming next: connect exchange API keys or a wallet. The engine already routes every order through a swappable executor (<code>server/executors/live.js</code>), so strategy, risk limits and this dashboard stay the same.</p>
+      </div>
+      <button class="btn btn-ghost" disabled>Connect wallet: not available yet</button>
+    </section>
+  </main>
+
+  <!-- Settings drawer -->
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Bot settings</h2>
+      <button class="btn btn-ghost icon-btn" id="closeDrawer" aria-label="Close">✕</button>
+    </div>
+    <form id="settingsForm" class="drawer-body"></form>
+    <div class="drawer-foot">
+      <button class="btn btn-danger-ghost" id="resetAcct" type="button">Reset paper account</button>
+      <button class="btn btn-ghost" id="resetAi" type="button">Reset AI</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="saveSettings" type="button">Save</button>
+    </div>
+  </aside>
+
+  <div class="tooltip" id="tip" role="tooltip"></div>
+  <div class="toasts" id="toasts"></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
