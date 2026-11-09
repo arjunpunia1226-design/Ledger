@@ -163,16 +163,50 @@ function renderHeader(s) {
   $('#logoutBtn').hidden = !s.authEnabled;
 }
 
-function kpi(l, v, sub, extra = '', vcls = '', tipHtml = '') { return `<div class="kpi" ${tipHtml ? `data-tip="${tipHtml}"` : ''}><div class="l">${l}</div><div class="v ${vcls}">${v}</div><div class="s">${sub}</div>${extra}</div>`; }
+// Side tile. `area` places it around the hero (l1..l3 left, r1..r3 right).
+function kpi(area, l, v, sub, extra = '', vcls = '', tipHtml = '') { return `<div class="kpi" style="grid-area:${area}" ${tipHtml ? `data-tip="${tipHtml}"` : ''}><div class="l">${l}</div><div class="v ${vcls}">${v}</div><div class="s">${sub}</div>${extra}</div>`; }
+
+// Small area chart of realized Trading P&L for the hero card.
+function heroSpark() {
+  const pts = (ui.series?.equity || []).map((p) => p.realized);
+  if (pts.length < 2) return '<div class="hero-spark empty">P&amp;L curve appears once the bot runs</div>';
+  const w = 600, h = 64;
+  let lo = Math.min(0, ...pts), hi = Math.max(0, ...pts);
+  if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+  const X = (i) => (i / (pts.length - 1)) * w, Y = (v) => h - 3 - ((v - lo) / (hi - lo)) * (h - 6);
+  const d = pts.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
+  // Fill between the curve and $0: blue where in profit, red where in loss.
+  const z = Y(0), area = `${d}L${w},${z}L0,${z}Z`;
+  return `<svg class="hero-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <defs><clipPath id="hpos"><rect x="0" y="0" width="${w}" height="${z}"/></clipPath><clipPath id="hneg"><rect x="0" y="${z}" width="${w}" height="${h - z}"/></clipPath></defs>
+    <path d="${area}" fill="var(--accent)" fill-opacity=".2" clip-path="url(#hpos)"/>
+    <path d="${area}" fill="var(--div-neg)" fill-opacity=".2" clip-path="url(#hneg)"/>
+    <line x1="0" x2="${w}" y1="${z}" y2="${z}" class="zeroline" vector-effect="non-scaling-stroke"/>
+    <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+
+function hero({ value, vcls, sub, parts, tipHtml, running }) {
+  return `<div class="kpi kpi-hero" ${tipHtml ? `data-tip="${tipHtml}"` : ''}>
+    <div class="hero-top"><span class="hero-label">Trading P&amp;L</span><span class="chip ${running ? 'chip-good' : ''}">${running ? 'Bot running' : 'Bot stopped'}</span></div>
+    <div class="hero-v ${vcls}">${value}</div>
+    <div class="hero-sub">${sub}</div>
+    ${heroSpark()}
+    <div class="hero-break">${parts.map(([l, v, c]) => `<div><div class="l">${l}</div><div class="v num ${c || ''}">${v}</div></div>`).join('')}</div>
+  </div>`;
+}
 
 function renderKpis(s) {
   const a = s.account, st = s.stats, ai = s.ai;
+  const running = s.bot.status === 'running';
+  const aiTile = (area) => kpi(area, 'AI skill vs baseline', ai.skill == null ? '—' : `${sbps(ai.skill * 100, 1)}%`, `${NF[0].format(ai.samples)} samples${ai.accuracy != null ? ` · ${pct(ai.accuracy)} accurate` : ''}`, '', ai.skill == null ? '' : cls(ai.skill));
   if (!a.initialized) {
-    $('#kpis').innerHTML = kpi('Paper account', usd(s.settings.startingCapitalUsd, 0), 'Funds on first start') +
-      kpi('Trading P&amp;L', '$0.00', 'No trades yet') +
-      kpi('Market movement', '$0.00', s.settings.hedgeInventory ? 'Inventory hedge on' : 'Inventory hedge off') +
-      kpi('Trades', '0', 'Bot idle') + kpi('Today vs loss limit', '$0.00', `Limit ${usd(s.settings.dailyLossLimitUsd, 0)}`) +
-      kpi('AI skill', ai.skill == null ? '—' : sbps(ai.skill * 100, 1) + '%', `${NF[0].format(ai.samples)} samples learned`);
+    $('#kpis').innerHTML =
+      hero({ value: '$0.00', vcls: '', sub: `Press <b>Start bot</b> to fund the paper account with ${usd(s.settings.startingCapitalUsd, 0)}`, parts: [['From trades', '$0.00'], ['Transfers', '$0.00'], ['Hedge fees', '$0.00']], running }) +
+      kpi('l1', 'Paper account', usd(s.settings.startingCapitalUsd, 0), 'Funded on first start') +
+      kpi('l2', 'Market movement', '$0.00', s.settings.hedgeInventory ? 'Inventory hedge on' : 'Inventory hedge off') +
+      kpi('l3', 'Costs paid', '$0.00', 'Fees, transfers and hedge') +
+      kpi('r1', 'Today vs loss limit', '$0.00', `Limit ${usd(s.settings.dailyLossLimitUsd, 0)}`) +
+      kpi('r2', 'Trades', '0', 'Bot idle') + aiTile('r3');
     return;
   }
   const done = st.filled + st.partial + st.legged;
@@ -185,13 +219,20 @@ function renderKpis(s) {
   const marketTip = h.active
     ? `<b>Price moves on the coins the bot holds</b><br>Coins <span class='mono'>${susd(a.coinMoveUsd)}</span>, offset by short hedge <span class='mono'>${susd(h.mtmUsd)}</span> on <span class='mono'>${usd(h.notionalUsd, 0)}</span>.<br>Net stays near $0 because the hedge cancels the move.`
     : `<b>Price moves on the coins the bot holds</b><br>The bot keeps <span class='mono'>${usd(a.coinUsd, 0)}</span> of coins on exchanges so it can sell instantly. With the hedge off, your equity rises and falls with those coins even when nothing trades.<br>Turn on <b>Inventory hedge</b> in Settings to cancel this out.`;
+  const costs = a.feesUsd + a.rebalanceCostUsd + (h.feesUsd || 0);
+  const pnlCls = Math.abs(a.realizedUsd) < 0.005 ? '' : cls(a.realizedUsd);
   $('#kpis').innerHTML =
-    kpi('Trading P&amp;L', susd(a.realizedUsd), `${NF[0].format(done)} fills · fees ${usd(a.feesUsd)} · transfers ${usd(a.rebalanceCostUsd)}${h.feesUsd ? ` · hedge ${usd(h.feesUsd)}` : ''}`, '', cls(a.realizedUsd), tradingTip) +
-    kpi('Market movement', susd(a.driftUsd), h.active ? `Hedged · coins ${susd(a.coinMoveUsd)} / hedge ${susd(h.mtmUsd)}` : `<span class="neg">Unhedged</span>: ${usd(a.coinUsd, 0)} of coins rides the market`, '', Math.abs(a.driftUsd) < 1 ? 'dim' : cls(a.driftUsd), marketTip) +
-    kpi('Account equity', usd(a.equityUsd), `Change ${susd(a.equityChangeUsd)} = trading + market`) +
-    kpi('Today vs loss limit', susd(a.dayPnlUsd), `${pct(lossUsed, 0)} of ${usd(s.settings.dailyLossLimitUsd, 0)} limit used`, `<div class="meter ${meterCls}"><i style="width:${Math.min(100, lossUsed * 100)}%"></i></div>`, cls(a.dayPnlUsd)) +
-    kpi('Trades', NF[0].format(st.executed), `${st.filled} filled · ${st.partial} partial · ${st.legged} legged · ${st.missed} missed${winRate != null ? ` · ${pct(winRate, 0)} win` : ''}`) +
-    kpi('AI skill vs baseline', ai.skill == null ? '—' : `${sbps(ai.skill * 100, 1)}%`, `${NF[0].format(ai.samples)} samples · ${pct(ai.accuracy)} accurate`, '', ai.skill == null ? '' : cls(ai.skill));
+    hero({
+      value: susd(a.realizedUsd), vcls: pnlCls, tipHtml: tradingTip, running,
+      sub: `<span class="${cls(a.returnPct)}">${sbps(a.returnPct, 3)}%</span> on ${usd(a.startEquityUsd, 0)} · ${NF[0].format(done)} fills · since ${new Date(a.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      parts: [['From trades', susd(tradeSum), cls(tradeSum)], ['Transfers', susd(-a.rebalanceCostUsd), a.rebalanceCostUsd ? 'neg' : ''], ['Hedge fees', susd(-(h.feesUsd || 0)), h.feesUsd ? 'neg' : '']],
+    }) +
+    kpi('l1', 'Account equity', usd(a.equityUsd), `Change ${susd(a.equityChangeUsd)} = trading + market`) +
+    kpi('l2', 'Market movement', susd(a.driftUsd), h.active ? `Hedged · coins ${susd(a.coinMoveUsd)} / hedge ${susd(h.mtmUsd)}` : `<span class="neg">Unhedged</span>: ${usd(a.coinUsd, 0)} of coins rides the market`, '', Math.abs(a.driftUsd) < 1 ? 'dim' : cls(a.driftUsd), marketTip) +
+    kpi('l3', 'Costs paid', usd(costs), `Exchange fees ${usd(a.feesUsd)} · transfers ${usd(a.rebalanceCostUsd)} · hedge ${usd(h.feesUsd || 0)} · volume $${compact(a.volumeUsd)}`) +
+    kpi('r1', 'Today vs loss limit', susd(a.dayPnlUsd), `${pct(lossUsed, 0)} of ${usd(s.settings.dailyLossLimitUsd, 0)} limit used`, `<div class="meter ${meterCls}"><i style="width:${Math.min(100, lossUsed * 100)}%"></i></div>`, cls(a.dayPnlUsd)) +
+    kpi('r2', 'Trades', NF[0].format(st.executed), `${st.filled} filled · ${st.partial} partial · ${st.legged} legged · ${st.missed} missed${winRate != null ? ` · ${pct(winRate, 0)} win` : ''}`) +
+    aiTile('r3');
 }
 
 function statusChip(blocked) {
