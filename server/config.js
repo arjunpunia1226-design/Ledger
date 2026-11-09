@@ -54,3 +54,5 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const PORT = Number(process.env.PORT) || 8787;
+// 127.0.0.1 = only this computer can open the dashboard. Set HOST=0.0.0.0 on a cloud host.
+export const HOST = process.env.HOST || '127.0.0.1';

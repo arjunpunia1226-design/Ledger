@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
+// DATA_DIR lets a cloud host point this at a persistent disk (e.g. /var/data on Render).
+const DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const FILE = path.join(DIR, 'state.json');
 
 export function load() {

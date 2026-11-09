@@ -54,6 +54,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 h2 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: -.005em; }

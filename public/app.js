@@ -76,8 +76,26 @@ function beep(good) {
 async function api(path, body) {
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { location.href = '/login.html'; throw new Error('Signed out'); }
   if (!r.ok || j.ok === false) throw new Error(j.error || `Request failed (${r.status})`);
   return j;
+}
+
+$('#logoutBtn').onclick = async () => { try { await api('/api/logout'); } catch {} location.href = '/login.html'; };
+
+// When the stream drops, find out why: signed out, or no bot engine behind this page at all
+// (e.g. the dashboard files were deployed to a static host without the server).
+async function diagnoseConnection() {
+  let status = 0;
+  try { status = (await fetch('/api/state', { cache: 'no-store' })).status; } catch {}
+  if (status === 401) { location.href = '/login.html'; return; }
+  if (status === 200) return; // transient blip; EventSource retries on its own
+  const ban = $('#haltBanner');
+  ban.hidden = false;
+  ban.textContent = status === 404
+    ? "Can't reach the bot engine. This page is being served without the Ledger server (a static host like Vercel can't run it). Run `npm start` locally, or deploy to a host that runs Node 24/7. See README → Deploy."
+    : 'Lost connection to the bot engine. Retrying…';
+  $('#statusText').textContent = status === 404 ? 'No engine' : 'Reconnecting…';
 }
 
 $('#runBtn').onclick = async () => {
@@ -95,7 +113,9 @@ function connect() {
   es.addEventListener('snapshot', (e) => { ui.snap = JSON.parse(e.data); scheduleRender(); });
   es.addEventListener('series', (e) => { ui.series = JSON.parse(e.data); renderSeries(); });
   es.addEventListener('trade', (e) => onTrade(JSON.parse(e.data)));
-  es.onerror = () => { $('#statusText').textContent = 'Reconnecting…'; $('#statusPill').className = 'status-pill'; };
+  es.onerror = () => { $('#statusText').textContent = 'Reconnecting…'; $('#statusPill').className = 'status-pill'; diagnoseConnection(); };
+  // A static host may answer /api/stream with a 404 page; EventSource then gives up silently.
+  setTimeout(() => { if (!ui.snap) diagnoseConnection(); }, 4000);
 }
 let raf = 0;
 function scheduleRender() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
@@ -140,6 +160,7 @@ function renderHeader(s) {
   ].map(([l, v]) => `<div class="tm"><span class="l">${l}</span><span class="v">${v}</span></div>`).join('');
   const ban = $('#haltBanner');
   if (st === 'halted') { ban.hidden = false; ban.textContent = `Kill switch: ${s.bot.haltReason}. Review settings, then start the bot again.`; } else ban.hidden = true;
+  $('#logoutBtn').hidden = !s.authEnabled;
 }
 
 function kpi(l, v, sub, extra = '', vcls = '', tipHtml = '') { return `<div class="kpi" ${tipHtml ? `data-tip="${tipHtml}"` : ''}><div class="l">${l}</div><div class="v ${vcls}">${v}</div><div class="s">${sub}</div>${extra}</div>`; }

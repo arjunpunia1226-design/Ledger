@@ -1,0 +1,29 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# New → Blueprint → pick this repo. Render asks for LEDGER_PASSWORD during setup.
+services:
+  - type: web
+    name: ledger
+    runtime: node
+    # Frankfurt: Binance and Bybit block US-based servers.
+    region: frankfurt
+    # Paid plan: the free tier sleeps when idle (stopping the bot) and has no persistent disk.
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: LEDGER_PASSWORD
+        sync: false          # you type it in the Render dashboard; never stored in git
+      - key: SESSION_SECRET
+        generateValue: true
+    disk:
+      name: ledger-data
+      mountPath: /var/data
+      sizeGB: 1
